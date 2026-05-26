@@ -21,7 +21,24 @@ except ImportError:
     WINDND_AVAILABLE = False
 
 
-APP_TITLE = "PNG to WebP Converter"
+def _supported_input_extensions() -> set[str]:
+    """Усі розширення, які Pillow вміє *читати* у цій збірці (разом із плагінами)."""
+    try:
+        Image.init()
+        return {
+            ext.lower()
+            for ext, fmt in Image.registered_extensions().items()
+            if fmt in Image.OPEN
+        }
+    except Exception:
+        return {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".tif", ".webp"}
+
+
+SUPPORTED_INPUT_EXTS = _supported_input_extensions()
+INPUT_FILETYPE_PATTERN = " ".join(sorted("*" + e for e in SUPPORTED_INPUT_EXTS))
+
+
+APP_TITLE = "WebP Converter"
 BG = "#f4f6fb"
 CARD = "#ffffff"
 TEXT = "#111827"
@@ -34,8 +51,6 @@ SUCCESS_HOVER = "#15803d"
 WARNING = "#f59e0b"
 ERROR = "#dc2626"
 
-# Максимальний лічильник для unique_output_path
-MAX_UNIQUE_COUNTER = 9999
 
 
 class ModernButton(tk.Frame):
@@ -208,6 +223,64 @@ class ModernSlider(tk.Canvas):
         self.coords("thumb", x - 8, y - 8, x + 8, y + 8)
 
 
+class MethodSelector(tk.Frame):
+    """Compact segmented control for picking the WebP compression method (0..6)."""
+
+    def __init__(self, parent, value=4, command=None, bg=CARD):
+        super().__init__(parent, bg=bg, bd=0, highlightthickness=0)
+
+        self.command = command
+        self.value = value
+        self.enabled = True
+        self._cells: dict[int, tk.Label] = {}
+
+        for v in range(0, 7):
+            cell = tk.Label(
+                self,
+                text=str(v),
+                width=2,
+                font=("Segoe UI", 8, "bold"),
+                bd=0,
+                padx=2,
+                pady=3,
+                cursor="hand2",
+            )
+            cell.pack(side="left", padx=1)
+            cell.bind("<Button-1>", lambda _e, val=v: self._select(val))
+            self._cells[v] = cell
+
+        self._render()
+
+    def get(self) -> int:
+        return self.value
+
+    def set(self, value: int):
+        if value in self._cells:
+            self.value = value
+            self._render()
+
+    def set_enabled(self, enabled: bool):
+        self.enabled = enabled
+        self._render()
+
+    def _select(self, value: int):
+        if not self.enabled or value == self.value:
+            return
+        self.value = value
+        self._render()
+        if self.command:
+            self.command(value)
+
+    def _render(self):
+        for v, cell in self._cells.items():
+            if not self.enabled:
+                cell.configure(bg="#e5e7eb", fg="#9ca3af", cursor="arrow")
+            elif v == self.value:
+                cell.configure(bg=ACCENT, fg="#ffffff", cursor="hand2")
+            else:
+                cell.configure(bg="#eef2ff", fg=ACCENT, cursor="hand2")
+
+
 class MultiColorListbox(tk.Frame):
     """Canvas-based listbox that renders each row with multiple colors per segment."""
 
@@ -222,10 +295,10 @@ class MultiColorListbox(tk.Frame):
 
         self._bg = bg
         self._select_bg = select_bg
-        self._rows: list[tuple] = []   # (index_text, name_text, size_text, arrow, pred_text, state)
+        self._rows: list[tuple] = []
         self._selected: int | None = None
         self._on_select_cb = None
-        self._scroll_offset = 0        # pixels scrolled from top
+        self._scroll_offset = 0
 
         self._canvas = tk.Canvas(
             self,
@@ -244,8 +317,6 @@ class MultiColorListbox(tk.Frame):
         self._canvas.bind("<Button-4>", self._on_mousewheel)
         self._canvas.bind("<Button-5>", self._on_mousewheel)
 
-    # ── public API (mirrors Listbox where needed) ──────────────────────────
-
     def bind(self, sequence=None, func=None, add=None):
         if sequence == "<<ListboxSelect>>":
             self._on_select_cb = func
@@ -258,9 +329,6 @@ class MultiColorListbox(tk.Frame):
         self._redraw()
 
     def insert(self, _index, row_tuple: tuple):
-        """row_tuple: (index_str, name_str, size_str, arrow_str, pred_str, state)
-        state: 'pending' | 'done'
-        """
         self._rows.append(row_tuple)
         self._redraw()
 
@@ -280,9 +348,11 @@ class MultiColorListbox(tk.Frame):
 
     def yview(self) -> tuple[float, float]:
         total = self._total_height()
-        if total == 0:
-            return (0.0, 1.0)
         canvas_h = self._canvas.winfo_height()
+
+        if total <= 0 or total <= canvas_h:
+            return (0.0, 1.0)
+
         top = self._scroll_offset / total
         bottom = min(1.0, (self._scroll_offset + canvas_h) / total)
         return (top, bottom)
@@ -291,14 +361,22 @@ class MultiColorListbox(tk.Frame):
         total = self._total_height()
         canvas_h = self._canvas.winfo_height()
         max_offset = max(0, total - canvas_h)
-        self._scroll_offset = int(fraction * total)
-        self._scroll_offset = max(0, min(self._scroll_offset, max_offset))
+
+        if max_offset <= 0:
+            self._scroll_offset = 0
+        else:
+            self._scroll_offset = int(float(fraction) * total)
+            self._scroll_offset = max(0, min(self._scroll_offset, max_offset))
+
         self._redraw()
 
     def configure(self, yscrollcommand=None, **kwargs):
-        pass  # handled internally
+        if yscrollcommand is not None:
+            self._canvas.configure(yscrollcommand=yscrollcommand)
+        if kwargs:
+            super().configure(**kwargs)
 
-    # ── internals ──────────────────────────────────────────────────────────
+    config = configure
 
     def _total_height(self) -> int:
         return len(self._rows) * self.ROW_HEIGHT + self.PAD_Y * 2
@@ -371,12 +449,10 @@ class MultiColorListbox(tk.Frame):
             row_y = y0 + i * self.ROW_HEIGHT
             row_bot = row_y + self.ROW_HEIGHT
 
-            # Skip rows fully outside viewport
             canvas_h = c.winfo_height()
             if row_bot < 0 or row_y > canvas_h:
                 continue
 
-            # Selection highlight
             if i == self._selected:
                 c.create_rectangle(
                     0, row_y, canvas_w, row_bot,
@@ -386,15 +462,10 @@ class MultiColorListbox(tk.Frame):
             text_y = row_y + self.ROW_HEIGHT // 2
             x = self.PAD_X
 
-            # ① index — muted
             x = self._draw_text(c, x, text_y, index_str + " ", MUTED, bold=False)
-            # ② filename — black/TEXT
             x = self._draw_text(c, x, text_y, name_str, TEXT, bold=True)
-            # ③ separator + original size — black/TEXT
             x = self._draw_text(c, x, text_y, " · " + size_str, TEXT, bold=False)
-            # ④ arrow — muted
             x = self._draw_text(c, x, text_y, " " + arrow_str + " ", MUTED, bold=False)
-            # ⑤ predicted size — yellow (pending) or green (done)
             pred_color = WARNING if state == "pending" else SUCCESS
             self._draw_text(c, x, text_y, pred_str, pred_color, bold=(state == "done"))
 
@@ -424,7 +495,6 @@ class WebPConverterApp:
         self._prediction_job = None
         self._selected_file_for_quality: Path | None = None
 
-        # FIX #1: Lock для захисту спільних структур даних від race condition
         self._data_lock = threading.Lock()
 
         self._setup_styles()
@@ -477,7 +547,7 @@ class WebPConverterApp:
         ).pack(anchor="w")
 
         drop_text = (
-            "Drag & drop PNG або папку з PNG у вікно"
+            "Drag & drop зображення або папку у вікно"
             if WINDND_AVAILABLE
             else "Встанови windnd для drag & drop: pip install windnd"
         )
@@ -557,7 +627,7 @@ class WebPConverterApp:
 
         self.count_label = tk.Label(
             top,
-            text="0 PNG",
+            text="0 файлів",
             bg=CARD,
             fg=MUTED,
             font=("Segoe UI", 10, "bold"),
@@ -589,7 +659,7 @@ class WebPConverterApp:
 
         self.drop_label = tk.Label(
             self.drop_zone,
-            text="Перетягни PNG сюди",
+            text="Перетягни зображення сюди",
             bg="#eff6ff",
             fg=ACCENT,
             font=("Segoe UI", 10, "bold"),
@@ -640,7 +710,6 @@ class WebPConverterApp:
             font=("Segoe UI", 14, "bold"),
         ).pack(anchor="w", padx=10, pady=(8, 6))
 
-        # Global quality.
         quality_box = tk.Frame(self.right_card, bg="#f9fafb", highlightthickness=1, highlightbackground=BORDER)
         quality_box.pack(fill="x", padx=10, pady=(0, 6))
 
@@ -679,7 +748,45 @@ class WebPConverterApp:
         )
         self.btn_apply_global.pack(anchor="w", padx=8, pady=(0, 6))
 
-        # Per-file quality.
+        self.lossless_var = tk.IntVar(value=0)
+        self.lossless_check = tk.Checkbutton(
+            quality_box,
+            text="Без втрат (lossless, для графіки/логотипів)",
+            variable=self.lossless_var,
+            command=self.on_lossless_toggle,
+            bg="#f9fafb",
+            fg=TEXT,
+            activebackground="#f9fafb",
+            font=("Segoe UI", 8),
+            bd=0,
+            highlightthickness=0,
+        )
+        self.lossless_check.pack(anchor="w", padx=4, pady=(0, 6))
+
+        tk.Label(
+            quality_box,
+            text="Метод стиснення",
+            bg="#f9fafb",
+            fg=TEXT,
+            font=("Segoe UI", 9, "bold"),
+        ).pack(anchor="w", padx=8, pady=(0, 0))
+
+        tk.Label(
+            quality_box,
+            text="0 — швидко · 6 — менший розмір (повільніше)",
+            bg="#f9fafb",
+            fg=MUTED,
+            font=("Segoe UI", 7),
+        ).pack(anchor="w", padx=8, pady=(0, 2))
+
+        self.method_selector = MethodSelector(
+            quality_box,
+            value=4,
+            command=self.on_method_change,
+            bg="#f9fafb",
+        )
+        self.method_selector.pack(anchor="w", padx=6, pady=(0, 6))
+
         per_file_box = tk.Frame(self.right_card, bg="#fff7ed", highlightthickness=1, highlightbackground="#fed7aa")
         per_file_box.pack(fill="x", padx=10, pady=(0, 6))
 
@@ -717,7 +824,6 @@ class WebPConverterApp:
         self.per_file_slider = ModernSlider(per_file_box, command=self.on_per_file_quality_change, width=232, height=26, bg="#fff7ed")
         self.per_file_slider.pack(padx=6, pady=(0, 5))
 
-        # Збереження.
         output_box = tk.Frame(self.right_card, bg="#f9fafb", highlightthickness=1, highlightbackground=BORDER)
         output_box.pack(fill="x", padx=10, pady=(0, 6))
 
@@ -820,7 +926,10 @@ class WebPConverterApp:
         skipped = 0
 
         for item in files:
-            # FIX #4: Логуємо файли, які не вдалося декодувати
+            if isinstance(item, str):
+                paths.append(item)
+                continue
+                
             decoded = None
             for encoding in ("utf-8", "cp1251"):
                 try:
@@ -861,8 +970,8 @@ class WebPConverterApp:
             return
 
         files = filedialog.askopenfilenames(
-            title="Вибери PNG",
-            filetypes=[("PNG files", "*.png")],
+            title="Вибери зображення",
+            filetypes=[("Зображення", INPUT_FILETYPE_PATTERN), ("Усі файли", "*.*")],
         )
 
         if files:
@@ -881,21 +990,27 @@ class WebPConverterApp:
         self.output_label.configure(text=self.shorten_path(self.output_dir), fg=SUCCESS)
 
     def add_files(self, paths, source="Додано"):
-        # FIX #1: Захищаємо читання/запис спільних структур
         with self._data_lock:
             existing = {p.resolve() for p in self.selected_files if p.exists()}
             added = 0
-            default_quality = int(self.slider.get())
 
             for raw in paths:
                 path = Path(raw).expanduser()
 
                 if path.is_dir():
-                    candidates = list(path.glob("*.png"))
+                    try:
+                        candidates = [
+                            p for p in path.iterdir()
+                            if p.is_file() and p.suffix.lower() in SUPPORTED_INPUT_EXTS
+                        ]
+                    except Exception:
+                        candidates = []
                 else:
                     candidates = [path]
 
                 for candidate in candidates:
+                    if candidate.suffix.lower() not in SUPPORTED_INPUT_EXTS:
+                        continue
                     try:
                         normalized = candidate.resolve()
                     except Exception:
@@ -904,12 +1019,11 @@ class WebPConverterApp:
                     if not normalized.exists():
                         continue
 
-                    if normalized.suffix.lower() != ".png":
-                        continue
-
                     if normalized not in existing:
                         self.selected_files.append(normalized)
-                        self.file_quality[normalized] = default_quality
+                        # Не фіксуємо якість одразу: файл "на дефолті", поки
+                        # користувач не задасть йому власну. Так зміна глобального
+                        # слайдера коректно перераховує його прогноз.
                         self.file_prediction.pop(normalized, None)
                         existing.add(normalized)
                         added += 1
@@ -918,10 +1032,10 @@ class WebPConverterApp:
             self.status_label.configure(text=f"{source}: +{added}", fg=ACCENT)
             self.drop_zone.configure(bg="#f0fdf4", highlightbackground="#bbf7d0")
             self.drop_icon.configure(bg="#f0fdf4")
-            self.drop_label.configure(bg="#f0fdf4", text=f"Додано: {len(self.selected_files)} PNG", fg=SUCCESS)
+            self.drop_label.configure(bg="#f0fdf4", text=f"Додано: {len(self.selected_files)} файлів", fg=SUCCESS)
             self.drop_sub.configure(bg="#f0fdf4")
         else:
-            self.status_label.configure(text="PNG не знайдено", fg=ERROR)
+            self.status_label.configure(text="Зображень не знайдено", fg=ERROR)
 
         self.refresh_files(preserve_scroll=False)
         self.schedule_prediction()
@@ -930,7 +1044,6 @@ class WebPConverterApp:
         if self.is_converting:
             return
 
-        # FIX #1: Захищаємо очищення спільних структур
         with self._data_lock:
             self.selected_files.clear()
             self.file_quality.clear()
@@ -945,7 +1058,7 @@ class WebPConverterApp:
 
         self.drop_zone.configure(bg="#eff6ff", highlightbackground="#bfdbfe")
         self.drop_icon.configure(bg="#eff6ff")
-        self.drop_label.configure(bg="#eff6ff", text="Перетягни PNG сюди", fg=ACCENT)
+        self.drop_label.configure(bg="#eff6ff", text="Перетягни зображення сюди", fg=ACCENT)
         self.drop_sub.configure(bg="#eff6ff")
 
         self.refresh_files(preserve_scroll=False)
@@ -959,7 +1072,6 @@ class WebPConverterApp:
         except Exception:
             scroll_top = 0.0
 
-        # FIX #1: Читаємо спільні структури під локом
         with self._data_lock:
             files_snapshot = list(self.selected_files)
             prediction_snapshot = dict(self.file_prediction)
@@ -970,7 +1082,7 @@ class WebPConverterApp:
             except ValueError:
                 selected_index = None
 
-        self.count_label.configure(text=f"{len(files_snapshot)} PNG")
+        self.count_label.configure(text=f"{len(files_snapshot)} файлів")
         self.files_list.delete(0, tk.END)
 
         for index, path in enumerate(files_snapshot, start=1):
@@ -1008,6 +1120,8 @@ class WebPConverterApp:
         self.btn_folder.set_enabled(not converting)
         self.btn_apply_global.set_enabled(has_files and not converting)
         self.per_file_slider.set_enabled(has_files and not converting and has_selection)
+        self.lossless_check.configure(state="disabled" if converting else "normal")
+        self.method_selector.set_enabled(not converting)
 
     def on_file_select(self, _event=None):
         selection = self.files_list.curselection()
@@ -1027,12 +1141,17 @@ class WebPConverterApp:
     def _update_selected_file_quality_panel(self):
         selected = self._selected_file_for_quality
 
+        if selected is None:
+            self.selected_file_label.configure(text="Файл не вибрано")
+            self.per_file_quality_label.configure(text="—")
+            return
+
         with self._data_lock:
             in_list = selected in self.selected_files
-            quality = self.file_quality.get(selected, int(self.slider.get())) if selected else None
-            predicted = self.file_prediction.get(selected) if selected else None
+            quality = self.file_quality.get(selected, int(self.slider.get()))
+            predicted = self.file_prediction.get(selected)
 
-        if selected is None or not in_list:
+        if not in_list:
             self.selected_file_label.configure(text="Файл не вибрано")
             self.per_file_quality_label.configure(text="—")
             return
@@ -1050,9 +1169,26 @@ class WebPConverterApp:
         self.quality_label.configure(text=f"{int(value)}%")
 
         if released:
+            with self._data_lock:
+                for path in self.selected_files:
+                    # Файли без власної якості ("на дефолті") треба перерахувати.
+                    if path not in self.file_quality:
+                        self.file_prediction.pop(path, None)
+            self._update_selected_file_quality_panel()
             self.schedule_prediction()
 
-    # FIX #3: refresh_files і pop з prediction переміщені виключно у гілку released
+    def on_lossless_toggle(self):
+        # Режим кодування змінився — усі прогнози стали неактуальні.
+        with self._data_lock:
+            self.file_prediction.clear()
+        self.schedule_prediction()
+
+    def on_method_change(self, _value=None):
+        # Метод впливає на розмір — прогнози треба перерахувати.
+        with self._data_lock:
+            self.file_prediction.clear()
+        self.schedule_prediction()
+
     def on_per_file_quality_change(self, value, released=False):
         selected = self._selected_file_for_quality
 
@@ -1110,8 +1246,9 @@ class WebPConverterApp:
             return
 
         default_quality = int(self.slider.get())
+        lossless = self.lossless_var.get() == 1
+        method = self.method_selector.get()
 
-        # FIX #7: files_to_predict обчислюється коректно зі знімка
         files_to_predict = [f for f in files_snapshot if f not in already_predicted]
 
         if not files_to_predict:
@@ -1122,10 +1259,12 @@ class WebPConverterApp:
 
         def worker():
             try:
-                predicted_by_file, _, _ = self.calculate_predictions(
+                predicted_by_file = self.calculate_predictions(
                     files_to_predict,
                     quality_snapshot,
                     default_quality,
+                    lossless,
+                    method,
                 )
 
                 def apply_prediction():
@@ -1143,7 +1282,6 @@ class WebPConverterApp:
         threading.Thread(target=worker, daemon=True).start()
 
     def _refresh_estimate_label(self, files_snapshot: list[Path]):
-        # FIX #7: Читаємо prediction під локом для консистентності
         with self._data_lock:
             prediction_snapshot = dict(self.file_prediction)
 
@@ -1163,22 +1301,28 @@ class WebPConverterApp:
         files: list[Path],
         qualities: dict[Path, int],
         default_quality: int,
-    ) -> tuple[dict[Path, int], int, int]:
-        # FIX #7: Повертаємо реальні значення original_total і predicted_total
-        original_total = 0
-        predicted_total = 0
+        lossless: bool = False,
+        method: int = 4,
+    ) -> dict[Path, int]:
         predicted_by_file: dict[Path, int] = {}
 
         def predict_one(path: Path) -> tuple[Path, int | None]:
             if not path.exists():
                 return path, None
             quality = int(qualities.get(path, default_quality))
-            with Image.open(path) as image:
-                buffer = BytesIO()
-                image.save(buffer, "webp", quality=quality)
-            return path, buffer.tell()
+            try:
+                with Image.open(path) as image:
+                    if image.mode not in ("RGB", "RGBA"):
+                        image = image.convert("RGBA")
+                    buffer = BytesIO()
+                    if lossless:
+                        image.save(buffer, "webp", lossless=True, method=method)
+                    else:
+                        image.save(buffer, "webp", quality=quality, method=method)
+                return path, buffer.tell()
+            except Exception:
+                return path, None
 
-        # Паралельний розрахунок — PIL відпускає GIL під час WebP-кодування
         with ThreadPoolExecutor(max_workers=4) as executor:
             futures = {executor.submit(predict_one, f): f for f in files}
             for future in as_completed(futures):
@@ -1186,10 +1330,8 @@ class WebPConverterApp:
                 if predicted is None:
                     continue
                 predicted_by_file[path] = predicted
-                predicted_total += predicted
-                original_total += path.stat().st_size
 
-        return predicted_by_file, predicted_total, original_total
+        return predicted_by_file
 
     def start_conversion(self):
         if self.is_converting or not self.selected_files:
@@ -1205,6 +1347,8 @@ class WebPConverterApp:
         output_dir = self.output_dir
         default_quality = int(self.slider.get())
         open_after = self.open_var.get() == 1
+        lossless = self.lossless_var.get() == 1
+        method = self.method_selector.get()
 
         self.progress["value"] = 0
         self.analytics_label.configure(text="")
@@ -1213,11 +1357,10 @@ class WebPConverterApp:
 
         threading.Thread(
             target=self.convert_files,
-            args=(files, qualities, output_dir, default_quality, open_after),
+            args=(files, qualities, output_dir, default_quality, open_after, lossless, method),
             daemon=True,
         ).start()
 
-    # FIX #2: Конвертація розпаралелена через ThreadPoolExecutor, прибраний sleep
     def convert_files(
         self,
         files: list[Path],
@@ -1225,6 +1368,8 @@ class WebPConverterApp:
         output_dir: Path | None,
         default_quality: int,
         open_after: bool,
+        lossless: bool,
+        method: int,
     ):
         total = len(files)
         results: list[dict | None] = [None] * total
@@ -1232,42 +1377,63 @@ class WebPConverterApp:
         lock = threading.Lock()
         last_folder: Path | None = None
 
+        # Наперед розкладаємо унікальні вихідні шляхи в головному потоці.
+        # Це усуває і колізію імен (a/logo.png + b/logo.png -> один logo.webp),
+        # і race при паралельному записі в той самий файл.
+        output_map: dict[Path, Path] = {}
+        # Сідуємо набір іменами вхідних файлів, щоб результат ніколи не
+        # перезаписав оригінал — актуально, коли вхід уже .webp.
+        used: set[Path] = set(files)
+        for source in files:
+            folder = output_dir if output_dir else source.parent
+            out = folder / f"{source.stem}.webp"
+            n = 1
+            while out in used:
+                out = folder / f"{source.stem}_{n}.webp"
+                n += 1
+            used.add(out)
+            output_map[source] = out
+
         def convert_one(index: int, source: Path):
             quality = int(qualities.get(source, default_quality))
-            short_name = source.name if len(source.name) <= 30 else source.name[:27] + "..."
 
-            self.root.after(
-                0,
-                lambda name=short_name: self.current_label.configure(
-                    text=f"Обробка: {name}",
-                    fg=MUTED,
-                ),
-            )
-
-            result = self.convert_one_file(source, output_dir, quality)
+            result = self.convert_one_file(source, output_map[source], quality, lossless, method)
 
             nonlocal completed, last_folder
             with lock:
                 results[index] = result
                 completed += 1
+                done = completed
                 if result.get("output"):
                     last_folder = result["output"].parent
-                progress = completed / total * 100
+                progress = done / total * 100
 
-            self.root.after(0, lambda p=progress: self.progress.configure(value=p))
+            short_name = source.name if len(source.name) <= 28 else source.name[:25] + "..."
+
+            def update_ui(p=progress, d=done, name=short_name):
+                self.progress.configure(value=p)
+                self.current_label.configure(
+                    text=f"Конвертовано {d}/{total}: {name}",
+                    fg=MUTED,
+                )
+
+            self.root.after(0, update_ui)
             return result
 
-        with ThreadPoolExecutor(max_workers=min(4, total)) as executor:
+        with ThreadPoolExecutor(max_workers=max(1, min(4, total))) as executor:
             futures = {
                 executor.submit(convert_one, i, source): i
                 for i, source in enumerate(files)
             }
             for future in as_completed(futures):
-                future.result()  # Викидає виняток, якщо convert_one впав
+                try:
+                    future.result() 
+                except Exception:
+                    pass
 
         self.root.after(0, lambda: self.finish_conversion(results, last_folder, open_after))
 
-    def convert_one_file(self, source: Path, output_dir: Path | None, quality: int) -> dict:
+    def convert_one_file(self, source: Path, output: Path, quality: int, lossless: bool, method: int = 4) -> dict:
         try:
             if not source.exists():
                 return {
@@ -1281,13 +1447,15 @@ class WebPConverterApp:
                 }
 
             old_size = source.stat().st_size
-            folder = output_dir if output_dir else source.parent
-            folder.mkdir(parents=True, exist_ok=True)
-
-            output = self.unique_output_path(folder, source.stem, ".webp")
+            output.parent.mkdir(parents=True, exist_ok=True)
 
             with Image.open(source) as image:
-                image.save(output, "webp", quality=quality)
+                if image.mode not in ("RGB", "RGBA"):
+                    image = image.convert("RGBA")
+                if lossless:
+                    image.save(output, "webp", lossless=True, method=method)
+                else:
+                    image.save(output, "webp", quality=quality, method=method)
 
             new_size = output.stat().st_size
 
@@ -1314,12 +1482,11 @@ class WebPConverterApp:
                 "error": str(exc),
             }
 
-    # FIX #5: Після конвертації зберігаємо файли з помилками у списку
-    def finish_conversion(self, results: list[dict], last_folder: Path | None, open_after: bool):
-        success = [r for r in results if r.get("success")]
-        failed = [r for r in results if not r.get("success")]
+    def finish_conversion(self, results: list[dict | None], last_folder: Path | None, open_after: bool):
+        success = [r for r in results if r and r.get("success")]
+        failed = [r for r in results if not r or not r.get("success")]
 
-        old_total = sum(r.get("old", 0) for r in results)
+        old_total = sum(r.get("old", 0) for r in results if r)
         new_total = sum(r.get("new", 0) for r in success)
         saved = ((old_total - new_total) / old_total * 100) if old_total > 0 else 0
 
@@ -1335,7 +1502,6 @@ class WebPConverterApp:
             self.status_label.configure(text="Успішно завершено", fg=SUCCESS)
             self.current_label.configure(text="")
 
-            # Очищаємо список лише якщо всі файли конвертовано успішно
             with self._data_lock:
                 for r in success:
                     src = r["source"]
@@ -1353,12 +1519,16 @@ class WebPConverterApp:
                 fg=WARNING,
             )
             self.status_label.configure(text="Завершено з помилками", fg=WARNING)
+            
+            first_error_msg = "Невідома помилка"
+            if failed and failed[0]:
+                first_error_msg = f"{failed[0].get('source', Path('Unknown')).name} — {failed[0].get('error')}"
+                
             self.current_label.configure(
-                text=f"Перша помилка: {failed[0]['source'].name} — {failed[0]['error']}",
+                text=f"Перша помилка: {first_error_msg}",
                 fg=ERROR,
             )
 
-            # FIX #5: Видаляємо лише успішно конвертовані; невдалі лишаємо для повтору
             with self._data_lock:
                 for r in success:
                     src = r["source"]
@@ -1369,12 +1539,16 @@ class WebPConverterApp:
         else:
             self.analytics_label.configure(text="Не вдалося конвертувати файли", fg=ERROR)
             self.status_label.configure(text="Помилка", fg=ERROR)
+            
+            first_error_msg = "Невідома помилка"
+            if failed and failed[0]:
+                first_error_msg = f"{failed[0].get('source', Path('Unknown')).name} — {failed[0].get('error')}"
+                
             if failed:
                 self.current_label.configure(
-                    text=f"Перша помилка: {failed[0]['source'].name} — {failed[0]['error']}",
+                    text=f"Перша помилка: {first_error_msg}",
                     fg=ERROR,
                 )
-            # Файли лишаються у списку — можна спробувати знову
 
         self._selected_file_for_quality = None
         self.is_converting = False
@@ -1383,29 +1557,11 @@ class WebPConverterApp:
 
         self.drop_zone.configure(bg="#eff6ff", highlightbackground="#bfdbfe")
         self.drop_icon.configure(bg="#eff6ff")
-        self.drop_label.configure(bg="#eff6ff", text="Перетягни PNG сюди", fg=ACCENT)
+        self.drop_label.configure(bg="#eff6ff", text="Перетягни зображення сюди", fg=ACCENT)
         self.drop_sub.configure(bg="#eff6ff")
 
         if open_after and last_folder:
             self.open_folder(last_folder)
-
-    # FIX #6: Обмежуємо лічильник, щоб уникнути нескінченного циклу
-    @staticmethod
-    def unique_output_path(folder: Path, stem: str, suffix: str) -> Path:
-        candidate = folder / f"{stem}{suffix}"
-
-        if not candidate.exists():
-            return candidate
-
-        for counter in range(1, MAX_UNIQUE_COUNTER + 1):
-            candidate = folder / f"{stem}_{counter}{suffix}"
-            if not candidate.exists():
-                return candidate
-
-        raise FileExistsError(
-            f"Не вдалося знайти унікальне ім'я для '{stem}{suffix}' "
-            f"після {MAX_UNIQUE_COUNTER} спроб"
-        )
 
     @staticmethod
     def format_size(size: float) -> str:
