@@ -377,9 +377,9 @@ class MethodSelector(tk.Frame):
 
 class MultiColorListbox(tk.Frame):
     """Canvas-listbox: кожен рядок з кількома кольоровими сегментами."""
-    ROW_HEIGHT = 22
-    FONT = ("Segoe UI", 9)
-    FONT_BOLD = ("Segoe UI", 9, "bold")
+    ROW_HEIGHT = 18
+    FONT = ("Segoe UI", 8)
+    FONT_BOLD = ("Segoe UI", 8, "bold")
     PAD_X = 8
     PAD_Y = 4
 
@@ -596,6 +596,91 @@ class MultiColorListbox(tk.Frame):
         return bbox[2] if bbox else x
 
 
+class MultiCheckSelector(tk.Frame):
+    """Ряд toggle-кнопок: кожна вмикається/вимикається незалежно."""
+    def __init__(self, parent, options, variables, command=None, bg=CARD,
+                 padx=6, pady=4, font_size=8):
+        super().__init__(parent, bg=bg, bd=0, highlightthickness=0)
+        self.options = list(options)
+        self.variables = variables  # dict {value: IntVar}
+        self.command = command
+        self.enabled = True
+        self._cells: dict = {}
+        for value in self.options:
+            cell = tk.Label(self, text=str(value),
+                            font=("Segoe UI", font_size, "bold"),
+                            bd=0, padx=padx, pady=pady, cursor="hand2")
+            cell.pack(side="left", padx=1)
+            cell.bind("<Button-1>", lambda _e, v=value: self._toggle(v))
+            self._cells[value] = cell
+            self.variables[value].trace_add("write", lambda *_: self._render())
+        self._render()
+
+    def _toggle(self, value):
+        if not self.enabled:
+            return
+        var = self.variables[value]
+        var.set(0 if var.get() else 1)
+        if self.command:
+            self.command(value)
+
+    def _render(self):
+        for value, cell in self._cells.items():
+            checked = self.variables[value].get() == 1
+            if not self.enabled:
+                cell.configure(bg=RAISED, fg=DIM, cursor="arrow")
+            elif checked:
+                cell.configure(bg=ACCENT, fg=ON_FILLED, cursor="hand2")
+            else:
+                cell.configure(bg=ACCENT_BG, fg=ACCENT_HOVER, cursor="hand2")
+
+    def set_enabled(self, enabled: bool):
+        self.enabled = enabled
+        self._render()
+
+
+class SegmentedSelector(tk.Frame):
+    """Сегмент-радіо: одна опція з кількох (через StringVar)."""
+    def __init__(self, parent, options, variable, command=None, bg=CARD,
+                 padx=8, pady=4, font_size=8):
+        super().__init__(parent, bg=bg, bd=0, highlightthickness=0)
+        self.options = options  # [(value, label), ...]
+        self.variable = variable
+        self.command = command
+        self.enabled = True
+        self._cells: dict = {}
+        for value, label in options:
+            cell = tk.Label(self, text=label,
+                            font=("Segoe UI", font_size, "bold"),
+                            bd=0, padx=padx, pady=pady, cursor="hand2")
+            cell.pack(side="left", padx=1)
+            cell.bind("<Button-1>", lambda _e, v=value: self._select(v))
+            self._cells[value] = cell
+        self.variable.trace_add("write", lambda *_: self._render())
+        self._render()
+
+    def _select(self, value):
+        if not self.enabled or self.variable.get() == value:
+            return
+        self.variable.set(value)
+        if self.command:
+            self.command(value)
+
+    def _render(self):
+        current = self.variable.get()
+        for value, cell in self._cells.items():
+            if not self.enabled:
+                cell.configure(bg=RAISED, fg=DIM, cursor="arrow")
+            elif value == current:
+                cell.configure(bg=ACCENT, fg=ON_FILLED, cursor="hand2")
+            else:
+                cell.configure(bg=ACCENT_BG, fg=ACCENT_HOVER, cursor="hand2")
+
+    def set_enabled(self, enabled: bool):
+        self.enabled = enabled
+        self._render()
+
+
 # ============================================================
 # WebP tab
 # ============================================================
@@ -640,19 +725,19 @@ class WebPTab(tk.Frame):
     # ---------- main UI ----------
     def _build_ui(self):
         # ===== Header =====
-        header = tk.Frame(self, bg=CARD, height=52)
+        header = tk.Frame(self, bg=CARD, height=40)
         header.pack(side="top", fill="x")
         header.pack_propagate(False)
 
         title_box = tk.Frame(header, bg=CARD)
-        title_box.pack(side="left", padx=12, pady=8)
+        title_box.pack(side="left", padx=10, pady=5)
         tk.Label(title_box, text="🖼", bg=CARD, fg=ACCENT,
-                 font=("Segoe UI Emoji", 18)).pack(side="left", padx=(0, 8))
-        tk.Label(title_box, text="Img to WebP", bg=CARD, fg=TEXT,
-                 font=("Segoe UI", 11, "bold")).pack(side="left")
+                 font=("Segoe UI Emoji", 14)).pack(side="left", padx=(0, 6))
+        tk.Label(title_box, text="IMG to WEBP", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
 
         buttons = tk.Frame(header, bg=CARD)
-        buttons.pack(side="right", padx=10, pady=10)
+        buttons.pack(side="right", padx=8, pady=6)
 
         self.btn_clear = ModernButton(buttons, "Очистити", self.clear_files,
                                       bg=ERROR_BG, fg=ERROR, hover_bg=ERROR_BORDER)
@@ -706,9 +791,9 @@ class WebPTab(tk.Frame):
         list_head = tk.Frame(list_card, bg=CARD)
         list_head.pack(fill="x", padx=10, pady=(8, 4))
         tk.Label(list_head, text="Файли", bg=CARD, fg=TEXT,
-                 font=("Segoe UI", 12, "bold")).pack(side="left")
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
         self.count_label = tk.Label(list_head, text=f"0 {_plural_files(0)}",
-                                    bg=CARD, fg=MUTED, font=("Segoe UI", 10))
+                                    bg=CARD, fg=MUTED, font=("Segoe UI", 8))
         self.count_label.pack(side="right")
 
         list_wrap = tk.Frame(list_card, bg=CARD_ALT,
@@ -1653,19 +1738,19 @@ class SvgToPngTab(tk.Frame):
     # ---------- main UI ----------
     def _build_ui(self):
         # Header
-        header = tk.Frame(self, bg=CARD, height=52)
+        header = tk.Frame(self, bg=CARD, height=40)
         header.pack(side="top", fill="x")
         header.pack_propagate(False)
 
         title_box = tk.Frame(header, bg=CARD)
-        title_box.pack(side="left", padx=12, pady=8)
+        title_box.pack(side="left", padx=10, pady=5)
         tk.Label(title_box, text="🎨", bg=CARD, fg=ACCENT,
-                 font=("Segoe UI Emoji", 18)).pack(side="left", padx=(0, 8))
+                 font=("Segoe UI Emoji", 14)).pack(side="left", padx=(0, 6))
         tk.Label(title_box, text="SVG to PNG", bg=CARD, fg=TEXT,
-                 font=("Segoe UI", 11, "bold")).pack(side="left")
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
 
         buttons = tk.Frame(header, bg=CARD)
-        buttons.pack(side="right", padx=10, pady=10)
+        buttons.pack(side="right", padx=8, pady=6)
         self.btn_clear = ModernButton(buttons, "Очистити", self.clear_files,
                                       bg=ERROR_BG, fg=ERROR, hover_bg=ERROR_BORDER)
         self.btn_clear.pack(side="left", padx=3)
@@ -1718,9 +1803,9 @@ class SvgToPngTab(tk.Frame):
         list_head = tk.Frame(list_card, bg=CARD)
         list_head.pack(fill="x", padx=10, pady=(8, 4))
         tk.Label(list_head, text="Файли", bg=CARD, fg=TEXT,
-                 font=("Segoe UI", 12, "bold")).pack(side="left")
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
         self.count_label = tk.Label(list_head, text=f"0 {_plural_files(0)}",
-                                    bg=CARD, fg=MUTED, font=("Segoe UI", 10))
+                                    bg=CARD, fg=MUTED, font=("Segoe UI", 8))
         self.count_label.pack(side="right")
 
         list_wrap = tk.Frame(list_card, bg=CARD_ALT,
@@ -2715,6 +2800,1093 @@ class SvgToPngTab(tk.Frame):
 
 
 # ============================================================
+# ICO tab
+# ============================================================
+ICO_SIZES = [16, 24, 32, 48, 64, 128, 256]
+ICO_INPUT_EXTS = SUPPORTED_INPUT_EXTS | {".svg"}
+
+
+def _ico_resample(method: str):
+    """Повертає Pillow resample constant для назви."""
+    name = {"lanczos": "LANCZOS", "bicubic": "BICUBIC", "nearest": "NEAREST"}.get(method, "LANCZOS")
+    try:
+        return getattr(Image.Resampling, name)
+    except AttributeError:
+        return getattr(Image, name)
+
+
+def _parse_hex_color(text: str):
+    """#rrggbb → (r, g, b, 255) або None при помилці."""
+    text = text.strip()
+    if not text.startswith("#") or len(text) != 7:
+        return None
+    try:
+        r = int(text[1:3], 16)
+        g = int(text[3:5], 16)
+        b = int(text[5:7], 16)
+        return (r, g, b, 255)
+    except ValueError:
+        return None
+
+
+class IcoTab(tk.Frame):
+    """Конвертер зображень/SVG → ICO."""
+
+    def __init__(self, parent, root_window):
+        super().__init__(parent, bg=BG)
+        self.root = root_window
+
+        # --- state ---
+        self.selected_files: list[Path] = []
+        self.file_root: dict[Path, Path] = {}
+        self.file_size_overrides: dict[Path, set[int]] = {}  # per-file: набір розмірів
+        self.output_dir: Path | None = None
+        self.drop_queue: queue.Queue = queue.Queue()
+        self.is_converting = False
+        self._selected_file: Path | None = None
+        self._loading_perfile = False
+
+        # Global settings
+        # Розміри (multi-check). За замовчуванням: 48×48 окремим файлом
+        self.size_vars: dict[int, tk.IntVar] = {
+            s: tk.IntVar(value=1 if s == 48 else 0) for s in ICO_SIZES
+        }
+        self.custom_size_var = tk.StringVar(value="")
+        self.mode_var = tk.StringVar(value="separate")       # multi / separate
+        self.square_fit_var = tk.StringVar(value="pad")      # pad / crop / stretch
+        self.bg_fill_var = tk.StringVar(value="transparent") # transparent / white / black / custom
+        self.bg_fill_custom_var = tk.StringVar(value="#ffffff")
+        self.resize_method_var = tk.StringVar(value="lanczos")  # lanczos / bicubic / nearest
+        self.recursive_var = tk.IntVar(value=0)
+        self.overwrite_var = tk.IntVar(value=0)
+        self.preserve_structure_var = tk.IntVar(value=0)
+        self.open_var = tk.IntVar(value=0)
+        self.suffix_var = tk.StringVar(value="")
+
+        # Per-file (тільки розміри)
+        self.pf_size_vars: dict[int, tk.IntVar] = {
+            s: tk.IntVar(value=0) for s in ICO_SIZES
+        }
+        self.pf_custom_size_var = tk.StringVar(value="")
+
+        # Preview state
+        self._current_preview = None
+        self._preview_job_id = 0
+        self._last_preview_path: Path | None = None
+
+        # Traces
+        for v in self.size_vars.values():
+            v.trace_add("write", lambda *_: self._on_settings_change())
+        self.custom_size_var.trace_add("write", lambda *_: self._on_settings_change())
+        for v in (self.mode_var, self.square_fit_var, self.bg_fill_var,
+                  self.bg_fill_custom_var, self.resize_method_var):
+            v.trace_add("write", lambda *_: self._on_settings_change())
+        self.suffix_var.trace_add("write", lambda *_: self.refresh_files())
+        for v in self.pf_size_vars.values():
+            v.trace_add("write", lambda *_: self._on_perfile_change())
+        self.pf_custom_size_var.trace_add("write", lambda *_: self._on_perfile_change())
+
+        self._data_lock = threading.Lock()
+        self._build_ui()
+        self.root.after(120, self._poll_drop_queue)
+
+    # ---------- main UI ----------
+    def _build_ui(self):
+        header = tk.Frame(self, bg=CARD, height=40)
+        header.pack(side="top", fill="x")
+        header.pack_propagate(False)
+
+        title_box = tk.Frame(header, bg=CARD)
+        title_box.pack(side="left", padx=10, pady=5)
+        tk.Label(title_box, text="🪟", bg=CARD, fg=ACCENT,
+                 font=("Segoe UI Emoji", 14)).pack(side="left", padx=(0, 6))
+        tk.Label(title_box, text="IMG to ICO", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
+
+        buttons = tk.Frame(header, bg=CARD)
+        buttons.pack(side="right", padx=8, pady=6)
+        self.btn_clear = ModernButton(buttons, "Очистити", self.clear_files,
+                                      bg=ERROR_BG, fg=ERROR, hover_bg=ERROR_BORDER)
+        self.btn_clear.pack(side="left", padx=3)
+        self.btn_convert = ModernButton(buttons, "Конвертувати", self.start_conversion,
+                                        bg=SUCCESS, hover_bg=SUCCESS_HOVER)
+        self.btn_convert.pack(side="left", padx=3)
+
+        main = tk.Frame(self, bg=BG)
+        main.pack(expand=True, fill="both", padx=10, pady=10)
+
+        sidebar = tk.Frame(main, bg=BG, width=320)
+        sidebar.pack(side="right", fill="y", padx=(8, 0))
+        sidebar.pack_propagate(False)
+
+        content = tk.Frame(main, bg=BG)
+        content.pack(side="left", expand=True, fill="both")
+
+        # Drop zone
+        self.drop_zone = tk.Frame(content, bg=CARD_ALT,
+                                  highlightthickness=1, highlightbackground=ACCENT_BORDER,
+                                  height=56)
+        self.drop_zone.pack(fill="x", pady=(0, 8))
+        self.drop_zone.pack_propagate(False)
+        self.drop_zone.bind("<Button-1>", lambda _e: self.select_files())
+
+        self.drop_icon = tk.Label(self.drop_zone, text="📥", bg=CARD_ALT, fg=ACCENT,
+                                  font=("Segoe UI Emoji", 16), cursor="hand2")
+        self.drop_icon.pack(side="left", padx=(16, 8), pady=8)
+        self.drop_icon.bind("<Button-1>", lambda _e: self.select_files())
+
+        self.labels_box = tk.Frame(self.drop_zone, bg=CARD_ALT)
+        self.labels_box.pack(side="left", fill="y", pady=8)
+        self.drop_label = tk.Label(self.labels_box, text="Перетягни зображення/SVG сюди",
+                                   bg=CARD_ALT, fg=ACCENT,
+                                   font=("Segoe UI", 10, "bold"), cursor="hand2")
+        self.drop_label.pack(anchor="w")
+        self.drop_label.bind("<Button-1>", lambda _e: self.select_files())
+        self.drop_sub = tk.Label(self.labels_box, text="або клікни для вибору",
+                                 bg=CARD_ALT, fg=MUTED,
+                                 font=("Segoe UI", 8), cursor="hand2")
+        self.drop_sub.pack(anchor="w")
+        self.drop_sub.bind("<Button-1>", lambda _e: self.select_files())
+
+        # File list
+        list_card = tk.Frame(content, bg=CARD,
+                             highlightthickness=1, highlightbackground=BORDER)
+        list_card.pack(expand=True, fill="both")
+
+        list_head = tk.Frame(list_card, bg=CARD)
+        list_head.pack(fill="x", padx=10, pady=(8, 4))
+        tk.Label(list_head, text="Файли", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
+        self.count_label = tk.Label(list_head, text=f"0 {_plural_files(0)}",
+                                    bg=CARD, fg=MUTED, font=("Segoe UI", 8))
+        self.count_label.pack(side="right")
+
+        list_wrap = tk.Frame(list_card, bg=CARD_ALT,
+                             highlightthickness=1, highlightbackground=BORDER)
+        list_wrap.pack(expand=True, fill="both", padx=10, pady=(0, 8))
+        self.files_list = MultiColorListbox(list_wrap, bg=CARD_ALT, select_bg=ACCENT_BG,
+                                            on_delete=self.delete_file)
+        self.files_list.pack(expand=True, fill="both", padx=2, pady=2)
+        self.files_list.bind("<<ListboxSelect>>", self.on_file_select)
+
+        # Preview з шахівкою на весь контейнер
+        self.preview_frame = tk.Frame(content, bg=PERFILE_BG,
+                                      highlightthickness=1,
+                                      highlightbackground=PERFILE_BORDER,
+                                      height=160)
+        self.preview_frame.pack(fill="x", pady=(8, 0))
+        self.preview_frame.pack_propagate(False)
+        self.preview_label = tk.Label(self.preview_frame, text="",
+                                      bg=PERFILE_BG, fg=MUTED, font=("Segoe UI", 8))
+        self.preview_label.pack(expand=True, fill="both", padx=4, pady=4)
+
+        # Per-file: тільки розміри + reset
+        self.perfile_frame = tk.Frame(content, bg=PERFILE_BG,
+                                      highlightthickness=1,
+                                      highlightbackground=PERFILE_BORDER)
+        self.perfile_frame.pack(fill="x", pady=(8, 0))
+
+        pf_inner = tk.Frame(self.perfile_frame, bg=PERFILE_BG)
+        pf_inner.pack(fill="x", padx=10, pady=8)
+
+        self.pf_title_label = tk.Label(
+            pf_inner, text="Файл не вибрано (розміри для конкретного файла)",
+            bg=PERFILE_BG, fg=MUTED,
+            font=("Segoe UI", 9, "bold"), anchor="w", justify="left",
+        )
+        self.pf_title_label.pack(fill="x")
+
+        pf_sizes_row = tk.Frame(pf_inner, bg=PERFILE_BG)
+        pf_sizes_row.pack(fill="x", pady=(6, 0))
+        self.pf_size_selector = MultiCheckSelector(
+            pf_sizes_row, ICO_SIZES, self.pf_size_vars, bg=PERFILE_BG,
+        )
+        self.pf_size_selector.pack(side="left")
+
+        pf_custom_row = tk.Frame(pf_inner, bg=PERFILE_BG)
+        pf_custom_row.pack(fill="x", pady=(4, 0))
+        tk.Label(pf_custom_row, text="Custom:", bg=PERFILE_BG, fg=PERFILE_TEXT,
+                 font=("Segoe UI", 9)).pack(side="left")
+        self.pf_custom_entry = tk.Entry(
+            pf_custom_row, textvariable=self.pf_custom_size_var, width=12,
+            font=("Segoe UI", 9), bd=1, relief="solid",
+            bg=RAISED, fg=TEXT, disabledbackground=PERFILE_BG, disabledforeground=DIM,
+            insertbackground=TEXT, highlightthickness=1, highlightbackground=BORDER,
+            highlightcolor=ACCENT,
+        )
+        self.pf_custom_entry.pack(side="left", padx=(6, 0))
+        tk.Label(pf_custom_row, text="(через кому, напр. 96,512)",
+                 bg=PERFILE_BG, fg=MUTED, font=("Segoe UI", 7)).pack(side="left", padx=(6, 0))
+
+        self.btn_pf_reset = ModernButton(
+            pf_custom_row, "Скинути до загальних", self._reset_perfile,
+            bg=ERROR_BG, fg=ERROR, hover_bg=ERROR_BORDER, padx=8,
+        )
+        self.btn_pf_reset.pack(side="right")
+
+        # Footer: status + progress
+        self.progress = ttk.Progressbar(content, style="Modern.Horizontal.TProgressbar",
+                                        orient="horizontal", mode="determinate", maximum=100)
+        self.progress.pack(fill="x", pady=(8, 0))
+
+        footer = tk.Frame(content, bg=BG)
+        footer.pack(fill="x", pady=(4, 0))
+        self.status_label = tk.Label(footer, text="Готово", bg=BG, fg=MUTED,
+                                     font=("Segoe UI", 8, "bold"))
+        self.status_label.pack(side="left")
+        self.current_label = tk.Label(footer, text="", bg=BG, fg=MUTED,
+                                      font=("Segoe UI", 8))
+        self.current_label.pack(side="left", padx=(8, 0))
+        self.analytics_label = tk.Label(footer, text="", bg=BG, fg=SUCCESS,
+                                        font=("Segoe UI", 8, "bold"))
+        self.analytics_label.pack(side="right")
+
+        self._build_settings(sidebar)
+        self._update_buttons()
+        self._update_selected_panel()
+
+    # ---------- sidebar (settings) ----------
+    def _build_settings(self, parent):
+        card = tk.Frame(parent, bg=CARD,
+                        highlightthickness=1, highlightbackground=BORDER)
+        card.pack(fill="both", expand=True)
+        inner = tk.Frame(card, bg=CARD)
+        inner.pack(fill="both", expand=True, padx=10, pady=10)
+
+        # РОЗМІРИ
+        tk.Label(inner, text="РОЗМІРИ", bg=CARD, fg=MUTED,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        sizes_box = tk.Frame(inner, bg=CARD)
+        sizes_box.pack(fill="x", pady=(4, 0))
+        MultiCheckSelector(sizes_box, ICO_SIZES, self.size_vars,
+                           bg=CARD).pack(anchor="w")
+
+        custom_row = tk.Frame(inner, bg=CARD)
+        custom_row.pack(fill="x", pady=(6, 0))
+        tk.Label(custom_row, text="Custom:", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 9), width=8, anchor="w").pack(side="left")
+        self.entry_custom = tk.Entry(
+            custom_row, textvariable=self.custom_size_var, width=14,
+            font=("Segoe UI", 9), bd=1, relief="solid",
+            bg=RAISED, fg=TEXT, disabledbackground=CARD, disabledforeground=DIM,
+            insertbackground=TEXT, highlightthickness=1, highlightbackground=BORDER,
+            highlightcolor=ACCENT,
+        )
+        self.entry_custom.pack(side="left", padx=(4, 0))
+        tk.Label(inner, text="через кому, напр. 96,512",
+                 bg=CARD, fg=MUTED, font=("Segoe UI", 7)).pack(anchor="w", pady=(2, 0))
+
+        # ПРЕСЕТИ
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=(10, 6))
+        tk.Label(inner, text="ПРЕСЕТИ", bg=CARD, fg=MUTED,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+        presets_row1 = tk.Frame(inner, bg=CARD)
+        presets_row1.pack(fill="x", pady=(4, 0))
+        ModernButton(presets_row1, "Favicon", lambda: self._apply_preset("favicon"),
+                     bg=ACCENT_BG, fg=ACCENT, hover_bg=ACCENT_BORDER, padx=8
+                     ).pack(side="left", padx=(0, 4))
+        ModernButton(presets_row1, "Windows", lambda: self._apply_preset("windows"),
+                     bg=ACCENT_BG, fg=ACCENT, hover_bg=ACCENT_BORDER, padx=8
+                     ).pack(side="left", padx=4)
+        presets_row2 = tk.Frame(inner, bg=CARD)
+        presets_row2.pack(fill="x", pady=(4, 0))
+        ModernButton(presets_row2, "Full set", lambda: self._apply_preset("full"),
+                     bg=ACCENT_BG, fg=ACCENT, hover_bg=ACCENT_BORDER, padx=8
+                     ).pack(side="left", padx=(0, 4))
+        ModernButton(presets_row2, "Pixel art", lambda: self._apply_preset("pixelart"),
+                     bg=ACCENT_BG, fg=ACCENT, hover_bg=ACCENT_BORDER, padx=8
+                     ).pack(side="left", padx=4)
+
+        # РЕЖИМ
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=(10, 6))
+        tk.Label(inner, text="ВИХІД", bg=CARD, fg=MUTED,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+
+        tk.Label(inner, text="Режим:", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(4, 2))
+        SegmentedSelector(inner,
+                          [("multi", "Multi-resolution"), ("separate", "Окремі файли")],
+                          self.mode_var, bg=CARD).pack(anchor="w")
+
+        tk.Label(inner, text="Аспект:", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 2))
+        SegmentedSelector(inner,
+                          [("pad", "Pad"), ("crop", "Crop"), ("stretch", "Stretch")],
+                          self.square_fit_var, bg=CARD).pack(anchor="w")
+
+        tk.Label(inner, text="Фон:", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 2))
+        SegmentedSelector(inner,
+                          [("transparent", "Прозорий"), ("white", "Білий"),
+                           ("black", "Чорний"), ("custom", "Custom")],
+                          self.bg_fill_var,
+                          command=lambda _v: self._update_bg_custom_state(),
+                          bg=CARD).pack(anchor="w")
+
+        bg_custom_row = tk.Frame(inner, bg=CARD)
+        bg_custom_row.pack(fill="x", pady=(4, 0))
+        tk.Label(bg_custom_row, text="Колір:", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 9), width=8, anchor="w").pack(side="left")
+        self.entry_bg_custom = tk.Entry(
+            bg_custom_row, textvariable=self.bg_fill_custom_var, width=10,
+            font=("Segoe UI", 9), bd=1, relief="solid",
+            bg=RAISED, fg=TEXT, disabledbackground=CARD, disabledforeground=DIM,
+            insertbackground=TEXT, highlightthickness=1, highlightbackground=BORDER,
+            highlightcolor=ACCENT,
+        )
+        self.entry_bg_custom.pack(side="left", padx=(4, 0))
+
+        tk.Label(inner, text="Метод resize:", bg=CARD, fg=TEXT,
+                 font=("Segoe UI", 9)).pack(anchor="w", pady=(6, 2))
+        SegmentedSelector(inner,
+                          [("lanczos", "Lanczos"), ("bicubic", "Bicubic"),
+                           ("nearest", "Nearest")],
+                          self.resize_method_var, bg=CARD).pack(anchor="w")
+
+        # ПАПКА / СУФІКС / FLAGS
+        tk.Frame(inner, bg=BORDER, height=1).pack(fill="x", pady=(10, 6))
+        tk.Label(inner, text="ВХІД / ВИХІД", bg=CARD, fg=MUTED,
+                 font=("Segoe UI", 8, "bold")).pack(anchor="w")
+
+        folder_row = tk.Frame(inner, bg=CARD)
+        folder_row.pack(fill="x", pady=(4, 0))
+        tk.Label(folder_row, text="Папка збереження:",
+                 bg=CARD, fg=TEXT, font=("Segoe UI", 9)).pack(side="left")
+        ModernButton(folder_row, "Вибрати…", self.select_output_folder,
+                     bg=ACCENT_BG, fg=ACCENT_HOVER, hover_bg=ACCENT_BG_HOVER,
+                     padx=8).pack(side="right")
+        self.btn_clear_output = ModernButton(
+            folder_row, "✕", self.clear_output_folder,
+            bg=ERROR_BG, fg=ERROR, hover_bg=ERROR_BORDER, padx=6,
+        )
+        self.btn_clear_output.pack(side="right", padx=(0, 4))
+
+        self.output_label = tk.Label(
+            inner, text="Поруч з оригіналом",
+            bg=CARD, fg=MUTED, font=("Segoe UI", 8),
+            wraplength=260, anchor="w", justify="left",
+        )
+        self.output_label.pack(fill="x", pady=(2, 4))
+
+        suf_row = tk.Frame(inner, bg=CARD)
+        suf_row.pack(fill="x", pady=(0, 2))
+        tk.Label(suf_row, text="Суфікс імені:",
+                 bg=CARD, fg=TEXT, font=("Segoe UI", 9)).pack(side="left")
+        ModernButton(suf_row, "✕", self.clear_suffix,
+                     bg=ERROR_BG, fg=ERROR, hover_bg=ERROR_BORDER,
+                     padx=6).pack(side="right")
+        suffix_input = tk.Entry(
+            suf_row, textvariable=self.suffix_var,
+            font=("Segoe UI", 9), bd=1, relief="solid",
+            bg=RAISED, fg=TEXT, disabledbackground=CARD, disabledforeground=DIM,
+            insertbackground=TEXT, highlightthickness=1, highlightbackground=BORDER,
+            highlightcolor=ACCENT,
+        )
+        suffix_input.pack(side="left", fill="x", expand=True, padx=(6, 6))
+        tk.Label(inner, text='напр. "@2x" → icon@2x.ico',
+                 bg=CARD, fg=MUTED, font=("Segoe UI", 7)
+                 ).pack(anchor="w", pady=(0, 4))
+
+        self._cb(inner, "Включати вкладені папки",
+                 self.recursive_var).pack(anchor="w")
+        self._cb(inner, "Перезаписувати існуючі файли",
+                 self.overwrite_var).pack(anchor="w")
+        self._cb(inner, "Зберігати структуру папок",
+                 self.preserve_structure_var).pack(anchor="w")
+        self._cb(inner, "Відкрити папку після завершення",
+                 self.open_var).pack(anchor="w")
+
+        self._update_bg_custom_state()
+
+    def _cb(self, parent, text, var, command=None):
+        return tk.Checkbutton(
+            parent, text=text, variable=var, command=command,
+            bg=CARD, fg=TEXT, activebackground=CARD, activeforeground=TEXT,
+            disabledforeground=DIM,
+            selectcolor=BG, font=("Segoe UI", 8),
+            bd=0, highlightthickness=0,
+        )
+
+    def _update_bg_custom_state(self):
+        if not hasattr(self, "entry_bg_custom"):
+            return
+        is_custom = self.bg_fill_var.get() == "custom"
+        self.entry_bg_custom.configure(state="normal" if is_custom else "disabled")
+
+    # ---------- settings callbacks ----------
+    def _on_settings_change(self):
+        self._update_bg_custom_state()
+        self._schedule_prediction()
+        if self._selected_file is not None:
+            self._request_preview(self._selected_file)
+
+    def _apply_preset(self, name: str):
+        preset_sizes = {
+            "favicon": {16, 32, 48},
+            "windows": {16, 32, 48, 256},
+            "full": set(ICO_SIZES),
+            "pixelart": {16, 32, 64},
+        }.get(name, set())
+        for s, var in self.size_vars.items():
+            var.set(1 if s in preset_sizes else 0)
+        # Метод ресайзу: nearest для pixel art, інакше повертаємо стандарт
+        self.resize_method_var.set("nearest" if name == "pixelart" else "lanczos")
+        self.custom_size_var.set("")
+        self.status_label.configure(text=f"Пресет: {name}", fg=ACCENT)
+
+    # ---------- DnD queue ----------
+    def queue_drop(self, paths: list[Path]):
+        if self.is_converting:
+            return
+        self.drop_queue.put(paths)
+
+    def _poll_drop_queue(self):
+        try:
+            while True:
+                paths = self.drop_queue.get_nowait()
+                if paths:
+                    self._handle_drop(paths)
+        except queue.Empty:
+            pass
+        self.root.after(120, self._poll_drop_queue)
+
+    def _handle_drop(self, paths):
+        if self.is_converting:
+            return
+        accepted: list[Path] = []
+        roots: dict[Path, Path] = {}
+        skipped = 0
+        recursive = self.recursive_var.get() == 1
+        for raw in paths:
+            try:
+                p = raw if isinstance(raw, Path) else Path(raw)
+            except Exception:
+                skipped += 1
+                continue
+            if p.is_file() and p.suffix.lower() in ICO_INPUT_EXTS:
+                accepted.append(p)
+                roots[p] = p.parent
+            elif p.is_dir():
+                pattern = "**/*" if recursive else "*"
+                for f in p.glob(pattern):
+                    if f.is_file() and f.suffix.lower() in ICO_INPUT_EXTS:
+                        accepted.append(f)
+                        roots[f] = p
+            else:
+                skipped += 1
+        self.add_files(accepted, roots, skipped_files=skipped)
+
+    # ---------- file management ----------
+    def select_files(self):
+        if self.is_converting:
+            return
+        ftypes = [("Зображення/SVG",
+                   " ".join(f"*{e}" for e in sorted(ICO_INPUT_EXTS))),
+                  ("Всі файли", "*.*")]
+        files = filedialog.askopenfilenames(title="Виберіть файли", filetypes=ftypes)
+        if files:
+            paths = [Path(f) for f in files]
+            self.add_files(paths, {p: p.parent for p in paths})
+
+    def add_files(self, paths: list[Path], roots: dict[Path, Path],
+                  skipped_files: int = 0):
+        with self._data_lock:
+            existing = set(self.selected_files)
+            added: list[Path] = []
+            for p in paths:
+                if p in existing or p.suffix.lower() not in ICO_INPUT_EXTS:
+                    continue
+                self.selected_files.append(p)
+                self.file_root[p] = roots.get(p, p.parent)
+                existing.add(p)
+                added.append(p)
+            count = len(self.selected_files)
+        if added:
+            self.drop_label.configure(text=f"Додано: {count} {_plural_files(count)}",
+                                      fg=SUCCESS)
+            self.drop_zone.configure(highlightbackground=SUCCESS_BORDER)
+        elif skipped_files:
+            self.status_label.configure(
+                text=f"Пропущено {skipped_files} непідтримуваних", fg=WARNING)
+        self.refresh_files()
+        self._schedule_prediction()
+        self._update_buttons()
+
+    def clear_files(self):
+        if self.is_converting:
+            return
+        with self._data_lock:
+            self.selected_files.clear()
+            self.file_root.clear()
+            self.file_size_overrides.clear()
+            self._selected_file = None
+        self.progress["value"] = 0
+        self.current_label.configure(text="")
+        self.analytics_label.configure(text="")
+        self.status_label.configure(text="Готово", fg=MUTED)
+        self.drop_zone.configure(bg=CARD_ALT, highlightbackground=ACCENT_BORDER)
+        self.drop_icon.configure(bg=CARD_ALT, fg=ACCENT)
+        self.labels_box.configure(bg=CARD_ALT)
+        self.drop_label.configure(bg=CARD_ALT, fg=ACCENT,
+                                  text="Перетягни зображення/SVG сюди")
+        self.drop_sub.configure(bg=CARD_ALT, fg=MUTED)
+        self.refresh_files()
+        self._update_selected_panel()
+        self._update_buttons()
+
+    def delete_file(self, index: int):
+        if self.is_converting:
+            return
+        with self._data_lock:
+            if not (0 <= index < len(self.selected_files)):
+                return
+            path = self.selected_files.pop(index)
+            self.file_root.pop(path, None)
+            self.file_size_overrides.pop(path, None)
+            if self._selected_file == path:
+                self._selected_file = None
+        self.status_label.configure(text=f"Видалено: {path.name}", fg=ACCENT)
+        n = len(self.selected_files)
+        if n == 0:
+            self.drop_zone.configure(bg=CARD_ALT, highlightbackground=ACCENT_BORDER)
+            self.drop_icon.configure(bg=CARD_ALT, fg=ACCENT)
+            self.labels_box.configure(bg=CARD_ALT)
+            self.drop_label.configure(bg=CARD_ALT, fg=ACCENT,
+                                      text="Перетягни зображення/SVG сюди")
+            self.drop_sub.configure(bg=CARD_ALT, fg=MUTED)
+        else:
+            self.drop_label.configure(text=f"Додано: {n} {_plural_files(n)}")
+        self.refresh_files()
+        self._update_selected_panel()
+        self._schedule_prediction()
+        self._update_buttons()
+
+    def refresh_files(self, preserve_scroll: bool = True):
+        selected_index = None
+        try:
+            scroll_top = self.files_list.yview()[0] if preserve_scroll else 0.0
+        except Exception:
+            scroll_top = 0.0
+
+        with self._data_lock:
+            files = list(self.selected_files)
+            overrides = dict(self.file_size_overrides)
+
+        if self._selected_file in files:
+            try:
+                selected_index = files.index(self._selected_file)
+            except ValueError:
+                selected_index = None
+
+        global_sizes = self._get_global_sizes()
+        global_mode = self.mode_var.get()
+        suffix = self.suffix_var.get().strip()
+
+        self.files_list.delete(0, tk.END)
+        for index, f in enumerate(files, start=1):
+            file_sizes = overrides.get(f, global_sizes)
+            sizes_str = ",".join(str(s) for s in sorted(file_sizes)) if file_sizes else "—"
+            if global_mode == "multi":
+                expected_name = f"{f.stem}{suffix}.ico"
+                pred_text = sizes_str
+            else:
+                expected_name = f"{f.stem}{suffix}_<n>.ico"
+                pred_text = f"{len(file_sizes)} файл(ів) · {sizes_str}"
+            badge = " · per-file" if f in overrides else ""
+            self.files_list.insert(
+                tk.END,
+                (f"{index}.", _truncate_middle(expected_name, 36) + badge,
+                 "", "", pred_text, "done"),
+            )
+
+        if selected_index is not None:
+            self.files_list.selection_clear(0, tk.END)
+            self.files_list.selection_set(selected_index)
+            self.files_list.activate(selected_index)
+
+        if preserve_scroll:
+            try:
+                self.files_list.yview_moveto(scroll_top)
+            except Exception:
+                pass
+
+        self.count_label.configure(text=f"{len(files)} {_plural_files(len(files))}")
+
+    # ---------- output folder / suffix ----------
+    def select_output_folder(self):
+        if self.is_converting:
+            return
+        folder = filedialog.askdirectory(title="Вибери папку збереження")
+        if not folder:
+            return
+        self.output_dir = Path(folder).resolve()
+        self.output_label.configure(text=_shorten_path(self.output_dir), fg=SUCCESS)
+        self._update_buttons()
+
+    def clear_output_folder(self):
+        if self.is_converting or self.output_dir is None:
+            return
+        self.output_dir = None
+        self.output_label.configure(text="Поруч з оригіналом", fg=MUTED)
+        self._update_buttons()
+
+    def clear_suffix(self):
+        if self.is_converting:
+            return
+        self.suffix_var.set("")
+
+    # ---------- buttons ----------
+    def _update_buttons(self):
+        has_files = bool(self.selected_files)
+        has_output = self.output_dir is not None
+        converting = self.is_converting
+        self.btn_convert.set_enabled(has_files and not converting)
+        self.btn_clear.set_enabled(has_files and not converting)
+        if hasattr(self, "btn_clear_output"):
+            self.btn_clear_output.set_enabled(has_output and not converting)
+
+    # ---------- size resolution ----------
+    def _parse_custom_sizes(self, text: str) -> set[int]:
+        result: set[int] = set()
+        for chunk in text.replace(";", ",").split(","):
+            chunk = chunk.strip()
+            if not chunk:
+                continue
+            try:
+                v = int(chunk)
+            except ValueError:
+                continue
+            if 1 <= v <= 1024:
+                result.add(v)
+        return result
+
+    def _get_global_sizes(self) -> set[int]:
+        sizes = {s for s, v in self.size_vars.items() if v.get() == 1}
+        sizes |= self._parse_custom_sizes(self.custom_size_var.get())
+        return sizes
+
+    def _get_perfile_sizes(self) -> set[int]:
+        sizes = {s for s, v in self.pf_size_vars.items() if v.get() == 1}
+        sizes |= self._parse_custom_sizes(self.pf_custom_size_var.get())
+        return sizes
+
+    # ---------- per-file ----------
+    def on_file_select(self, _event=None):
+        sel = self.files_list.curselection()
+        if not sel:
+            self._selected_file = None
+        else:
+            idx = sel[0]
+            with self._data_lock:
+                files = list(self.selected_files)
+            if 0 <= idx < len(files):
+                self._selected_file = files[idx]
+        self._update_selected_panel()
+
+    def _update_selected_panel(self):
+        sel = self._selected_file
+        self._loading_perfile = True
+        try:
+            if sel is None:
+                self.pf_title_label.configure(
+                    text="Файл не вибрано (розміри для конкретного файла)",
+                    fg=MUTED)
+                for v in self.pf_size_vars.values():
+                    v.set(0)
+                self.pf_custom_size_var.set("")
+                self.pf_size_selector.set_enabled(False)
+                self.pf_custom_entry.configure(state="disabled")
+                if hasattr(self, "btn_pf_reset"):
+                    self.btn_pf_reset.set_enabled(False)
+                self._request_preview(None)
+                return
+
+            override = self.file_size_overrides.get(sel)
+            has_override = override is not None
+            sizes = override if has_override else self._get_global_sizes()
+
+            label = _truncate_middle(sel.name, 50)
+            if has_override:
+                label += "  ·  per-file"
+            self.pf_title_label.configure(text=label,
+                                          fg=PERFILE_TEXT if has_override else MUTED)
+            # Заповнюємо чекбокси; нестандартні відправляємо в custom
+            standard_sizes = set(ICO_SIZES)
+            for s, v in self.pf_size_vars.items():
+                v.set(1 if s in sizes else 0)
+            custom_extra = sorted(sizes - standard_sizes)
+            self.pf_custom_size_var.set(",".join(str(x) for x in custom_extra))
+            self.pf_size_selector.set_enabled(True)
+            self.pf_custom_entry.configure(state="normal")
+            if hasattr(self, "btn_pf_reset"):
+                self.btn_pf_reset.set_enabled(has_override)
+            self._request_preview(sel)
+        finally:
+            self._loading_perfile = False
+
+    def _on_perfile_change(self):
+        if self._loading_perfile or self.is_converting:
+            return
+        sel = self._selected_file
+        if sel is None:
+            return
+        self.file_size_overrides[sel] = self._get_perfile_sizes()
+        self.pf_title_label.configure(
+            text=_truncate_middle(sel.name, 50) + "  ·  per-file",
+            fg=PERFILE_TEXT)
+        if hasattr(self, "btn_pf_reset"):
+            self.btn_pf_reset.set_enabled(True)
+        self.refresh_files(preserve_scroll=True)
+        self._request_preview(sel)
+
+    def _reset_perfile(self):
+        sel = self._selected_file
+        if sel is None or self.is_converting:
+            return
+        if sel in self.file_size_overrides:
+            del self.file_size_overrides[sel]
+        self._update_selected_panel()
+        self.refresh_files(preserve_scroll=True)
+
+    # ---------- preview ----------
+    @staticmethod
+    def _checkerboard(w, h, sz=8):
+        ts = sz * 2
+        tile = Image.new("RGBA", (ts, ts), (255, 255, 255, 255))
+        tile.paste(Image.new("RGBA", (sz, sz), (220, 220, 225, 255)), (0, 0))
+        tile.paste(Image.new("RGBA", (sz, sz), (220, 220, 225, 255)), (sz, sz))
+        cols, rows = -(-w // ts), -(-h // ts)
+        row_img = Image.new("RGBA", (ts * cols, ts))
+        for c in range(cols):
+            row_img.paste(tile, (c * ts, 0))
+        full = Image.new("RGBA", (ts * cols, ts * rows))
+        for r in range(rows):
+            full.paste(row_img, (0, r * ts))
+        return full.crop((0, 0, w, h))
+
+    PREVIEW_MAX_W = 600
+    PREVIEW_MAX_H = 150
+
+    def _request_preview(self, path):
+        self._preview_job_id += 1
+        job_id = self._preview_job_id
+        self._last_preview_path = path
+
+        if path is None:
+            self._current_preview = None
+            self.preview_label.configure(image="", text="")
+            return
+
+        self.preview_label.configure(image="", text="…")
+
+        # Snapshot налаштувань (виконується у GUI-треді, безпечно)
+        settings = self._read_settings()
+        override = self.file_size_overrides.get(path)
+        sizes = override if override is not None else self._get_global_sizes()
+        target_size = max(sizes) if sizes else 256
+
+        def worker():
+            preview = None
+            err = None
+            try:
+                render_size = max(target_size, 512)
+                img = self._load_image_rgba(path, render_size=render_size)
+                bg_color = self._resolve_bg_color(settings)
+                img = self._apply_bg_fill(img, bg_color)
+                img = self._apply_square_fit(img, settings["square_fit"], bg_color)
+                resample = _ico_resample(settings["resize_method"])
+                # Resize до фактичного target_size — таким буде найбільший фрейм у .ico
+                sized = img.resize((target_size, target_size), resample)
+                # Зменшити для відображення, якщо target_size більший за preview area
+                ow, oh = sized.size
+                r = min(self.PREVIEW_MAX_W / ow, self.PREVIEW_MAX_H / oh, 1.0)
+                if r < 1.0:
+                    pw, ph = max(1, int(ow * r)), max(1, int(oh * r))
+                    small = sized.resize((pw, ph), _ico_resample("lanczos"))
+                else:
+                    pw, ph = ow, oh
+                    small = sized.copy()
+                bg = self._checkerboard(pw, ph)
+                bg.alpha_composite(small)
+                preview = bg
+            except Exception as exc:
+                err = str(exc)
+
+            def apply():
+                if job_id != self._preview_job_id:
+                    return
+                if preview is None:
+                    self._current_preview = None
+                    self.preview_label.configure(
+                        image="", text=err or "(no preview)")
+                else:
+                    photo = ImageTk.PhotoImage(preview)
+                    self._current_preview = photo
+                    # підпис у tooltip-форматі: target × target px
+                    self.preview_label.configure(
+                        image=photo, text="", compound="center")
+            self.root.after(0, apply)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    # ---------- image loading & transforms ----------
+    @staticmethod
+    def _load_image_rgba(path: Path, render_size: int = 512) -> Image.Image:
+        if path.suffix.lower() == ".svg":
+            if not CAIROSVG_OK:
+                raise RuntimeError("cairosvg недоступний — SVG не підтримується")
+            png_bytes = cairosvg.svg2png(url=str(path),
+                                         output_width=render_size,
+                                         output_height=render_size)
+            img = Image.open(io.BytesIO(png_bytes))
+        else:
+            img = Image.open(path)
+        if img.mode != "RGBA":
+            img = img.convert("RGBA")
+        return img
+
+    @staticmethod
+    def _resolve_bg_color(settings: dict):
+        fill = settings.get("bg_fill", "transparent")
+        if fill == "transparent":
+            return None
+        if fill == "white":
+            return (255, 255, 255, 255)
+        if fill == "black":
+            return (0, 0, 0, 255)
+        if fill == "custom":
+            parsed = _parse_hex_color(settings.get("bg_fill_custom", ""))
+            return parsed or (255, 255, 255, 255)
+        return None
+
+    @staticmethod
+    def _apply_bg_fill(img: Image.Image, bg_color) -> Image.Image:
+        if bg_color is None:
+            return img
+        bg = Image.new("RGBA", img.size, bg_color)
+        bg.alpha_composite(img)
+        return bg
+
+    @staticmethod
+    def _apply_square_fit(img: Image.Image, fit: str, bg_color) -> Image.Image:
+        w, h = img.size
+        if w == h:
+            return img
+        if fit == "stretch":
+            return img
+        if fit == "crop":
+            side = min(w, h)
+            left = (w - side) // 2
+            top = (h - side) // 2
+            return img.crop((left, top, left + side, top + side))
+        # pad (за замовчуванням)
+        side = max(w, h)
+        fill = bg_color if bg_color is not None else (0, 0, 0, 0)
+        new_img = Image.new("RGBA", (side, side), fill)
+        offset = ((side - w) // 2, (side - h) // 2)
+        new_img.paste(img, offset, img)
+        return new_img
+
+    # ---------- prediction ----------
+    def _schedule_prediction(self):
+        self.refresh_files(preserve_scroll=True)
+
+    # ---------- conversion ----------
+    def _read_settings(self) -> dict:
+        return {
+            "mode": self.mode_var.get(),
+            "square_fit": self.square_fit_var.get(),
+            "bg_fill": self.bg_fill_var.get(),
+            "bg_fill_custom": self.bg_fill_custom_var.get(),
+            "resize_method": self.resize_method_var.get(),
+        }
+
+    def start_conversion(self):
+        if self.is_converting or not self.selected_files:
+            return
+
+        global_sizes = self._get_global_sizes()
+        with self._data_lock:
+            files = list(self.selected_files)
+            overrides = dict(self.file_size_overrides)
+            file_root_snap = dict(self.file_root)
+
+        # Перевірка: для кожного файла мають бути розміри
+        for f in files:
+            sizes = overrides.get(f, global_sizes)
+            if not sizes:
+                self.status_label.configure(
+                    text=f"Для {f.name} не вказано жодного розміру", fg=ERROR)
+                return
+            if any(s > 1024 or s < 1 for s in sizes):
+                self.status_label.configure(
+                    text=f"Розмір поза межами 1..1024 для {f.name}", fg=ERROR)
+                return
+
+        settings = self._read_settings()
+
+        self.is_converting = True
+        self._update_buttons()
+        output_dir = self.output_dir
+        open_after = self.open_var.get() == 1
+        overwrite = self.overwrite_var.get() == 1
+        preserve_structure = self.preserve_structure_var.get() == 1
+        suffix = self.suffix_var.get().strip()
+
+        self.progress["value"] = 0
+        self.analytics_label.configure(text="")
+        self.current_label.configure(text="")
+        self.status_label.configure(text="Конвертація...", fg=ACCENT)
+
+        threading.Thread(target=self._convert_files,
+                         args=(files, global_sizes, overrides, settings, output_dir,
+                               open_after, overwrite, preserve_structure, suffix,
+                               file_root_snap),
+                         daemon=True).start()
+
+    def _convert_files(self, files, global_sizes, overrides, settings, output_dir,
+                       open_after, overwrite, preserve_structure, suffix, file_root):
+        total = len(files)
+        results: list = [None] * total
+        completed = 0
+        lock = threading.Lock()
+        last_folder: Path | None = None
+
+        def convert_one(idx: int, source: Path):
+            nonlocal completed, last_folder
+            sizes = sorted(overrides.get(source, global_sizes))
+            result = {"success": False, "source": source, "outputs": [], "error": None}
+            try:
+                # Destination folder
+                if output_dir and preserve_structure and source in file_root:
+                    root = file_root[source]
+                    try:
+                        rel = source.relative_to(root)
+                        folder = output_dir / rel.parent
+                    except ValueError:
+                        folder = output_dir
+                else:
+                    folder = output_dir if output_dir else source.parent
+                folder.mkdir(parents=True, exist_ok=True)
+
+                # Load + transform
+                render_size = max(max(sizes), 512)
+                img = self._load_image_rgba(source, render_size=render_size)
+                bg_color = self._resolve_bg_color(settings)
+                img = self._apply_bg_fill(img, bg_color)
+                img = self._apply_square_fit(img, settings["square_fit"], bg_color)
+                resample = _ico_resample(settings["resize_method"])
+
+                outputs: list[Path] = []
+                if settings["mode"] == "multi":
+                    out_path = folder / f"{source.stem}{suffix}.ico"
+                    if not overwrite:
+                        n = 1
+                        while out_path.exists():
+                            out_path = folder / f"{source.stem}{suffix}_{n}.ico"
+                            n += 1
+                    resized_imgs = [img.resize((s, s), resample) for s in sizes]
+                    first = resized_imgs[0]
+                    first.save(out_path, format="ICO",
+                               sizes=[(s, s) for s in sizes],
+                               append_images=resized_imgs[1:])
+                    outputs.append(out_path)
+                else:
+                    for s in sizes:
+                        out_path = folder / f"{source.stem}{suffix}_{s}.ico"
+                        if not overwrite:
+                            n = 1
+                            while out_path.exists():
+                                out_path = folder / f"{source.stem}{suffix}_{s}_{n}.ico"
+                                n += 1
+                        resized = img.resize((s, s), resample)
+                        resized.save(out_path, format="ICO", sizes=[(s, s)])
+                        outputs.append(out_path)
+
+                result.update({"success": True, "outputs": outputs})
+            except Exception as exc:
+                result["error"] = str(exc)
+
+            with lock:
+                results[idx] = result
+                completed += 1
+                done = completed
+                if result["outputs"]:
+                    last_folder = result["outputs"][-1].parent
+                progress = done / total * 100
+
+            def progress_apply():
+                self.progress["value"] = progress
+                self.current_label.configure(
+                    text=f"Конвертовано {done}/{total}: {_truncate_middle(source.name, 36)}",
+                    fg=ACCENT)
+            self.root.after(0, progress_apply)
+
+        with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+            futs = [ex.submit(convert_one, i, f) for i, f in enumerate(files)]
+            for fut in as_completed(futs):
+                _ = fut.result()
+
+        self.root.after(0, lambda: self._finish_conversion(results, last_folder, open_after))
+
+    def _finish_conversion(self, results, last_folder, open_after):
+        success = [r for r in results if r and r["success"]]
+        failed = [r for r in results if r and not r["success"]]
+        total = len(results)
+        all_outputs = [o for r in success for o in r["outputs"]]
+
+        if not failed:
+            self.analytics_label.configure(
+                text=f"✓ {len(success)}/{total} · згенеровано {len(all_outputs)} .ico",
+                fg=SUCCESS)
+            self.status_label.configure(text="Готово", fg=SUCCESS)
+            with self._data_lock:
+                for r in success:
+                    src = r["source"]
+                    self.selected_files = [f for f in self.selected_files if f != src]
+                    self.file_root.pop(src, None)
+                    self.file_size_overrides.pop(src, None)
+        elif success:
+            self.analytics_label.configure(
+                text=f"Частково: {len(success)}/{total} · помилок {len(failed)}",
+                fg=WARNING)
+            self.status_label.configure(text="Завершено з помилками", fg=WARNING)
+            if failed[0]:
+                src_name = failed[0]["source"].name
+                self.current_label.configure(
+                    text=f"Перша помилка: {src_name} — {failed[0]['error']}", fg=ERROR)
+            with self._data_lock:
+                for r in success:
+                    src = r["source"]
+                    self.selected_files = [f for f in self.selected_files if f != src]
+                    self.file_root.pop(src, None)
+                    self.file_size_overrides.pop(src, None)
+        else:
+            self.analytics_label.configure(text="Не вдалося конвертувати файли", fg=ERROR)
+            self.status_label.configure(text="Помилка", fg=ERROR)
+            if failed[0]:
+                src_name = failed[0]["source"].name
+                self.current_label.configure(
+                    text=f"Перша помилка: {src_name} — {failed[0]['error']}", fg=ERROR)
+
+        self._selected_file = None
+        self.is_converting = False
+        self.refresh_files()
+        self._update_selected_panel()
+        self._update_buttons()
+
+        self.drop_zone.configure(bg=CARD_ALT, highlightbackground=ACCENT_BORDER)
+        self.drop_icon.configure(bg=CARD_ALT, fg=ACCENT)
+        self.labels_box.configure(bg=CARD_ALT)
+        self.drop_label.configure(bg=CARD_ALT, fg=ACCENT,
+                                  text="Перетягни зображення/SVG сюди")
+        self.drop_sub.configure(bg=CARD_ALT, fg=MUTED)
+
+        if open_after and last_folder:
+            _open_folder(last_folder)
+
+
+# ============================================================
 # Main app
 # ============================================================
 class ImageConverterApp:
@@ -2745,23 +3917,26 @@ class ImageConverterApp:
         style.configure("TNotebook", background=BG, borderwidth=0)
         style.configure("TNotebook.Tab",
                         background=CARD, foreground=MUTED,
-                        padding=[10, 4], font=("Segoe UI", 9),
+                        padding=[8, 3], font=("Segoe UI", 8),
                         borderwidth=0)
         style.map("TNotebook.Tab",
                   background=[("selected", ACCENT_BG), ("active", RAISED)],
                   foreground=[("selected", ACCENT_HOVER), ("active", TEXT)],
-                  padding=[("selected", [22, 10])],
-                  font=[("selected", ("Segoe UI", 11, "bold"))])
+                  padding=[("selected", [16, 6])],
+                  font=[("selected", ("Segoe UI", 9, "bold"))])
 
     def _build_ui(self):
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(expand=True, fill="both")
 
         self.webp_tab = WebPTab(self.notebook, self.root)
-        self.notebook.add(self.webp_tab, text="  Img to WebP  ")
+        self.notebook.add(self.webp_tab, text="  IMG to WEBP  ")
 
         self.svg_tab = SvgToPngTab(self.notebook, self.root)
         self.notebook.add(self.svg_tab, text="  SVG to PNG  ")
+
+        self.ico_tab = IcoTab(self.notebook, self.root)
+        self.notebook.add(self.ico_tab, text="  IMG to ICO  ")
 
     def _enable_drag_drop(self):
         try:
@@ -2798,7 +3973,7 @@ class ImageConverterApp:
             idx = self.notebook.index(self.notebook.select())
         except Exception:
             return None
-        tabs = [self.webp_tab, self.svg_tab]
+        tabs = [self.webp_tab, self.svg_tab, self.ico_tab]
         if 0 <= idx < len(tabs):
             return tabs[idx]
         return None
